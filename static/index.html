@@ -1,0 +1,169 @@
+<!-- static/index.html -->
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>FrontWave OS - Visor</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/libs/leaflet.css" />
+  <style>
+    body { margin:0; font-family:sans-serif }
+    #controls { padding:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; background:#f7f7f7; border-bottom:1px solid #ddd }
+    #map { height: calc(100vh - 110px); }
+    input, button { padding:6px; }
+    .legend { background:#fff; padding:8px; border:1px solid #ccc; border-radius:6px; font-size:12px; }
+    .legend h4 { margin:0 0 6px 0; font-size:12px; }
+    .legend canvas { display:block; width:160px; height:12px; image-rendering: pixelated; margin-bottom:4px; }
+    .legend .ticks { display:flex; justify-content:space-between }
+    #status { font-weight:bold; color:#333; }
+    #downloads a { margin-right:10px }
+  </style>
+</head>
+<body>
+  <div id="controls">
+    <input type="file" id="csv" accept=".csv" required />
+    <label>grid(m) <input type="number" id="grid" value="12000" step="1000" style="width:90px"></label>
+    <label>cell(m) <input type="number" id="cell" value="1200" step="100" style="width:90px"></label>
+    <label>contour <input type="number" id="contour" value="30" step="5" style="width:70px"></label>
+    <button id="runBtn">Procesar</button>
+    <span id="status"></span>
+    <div id="downloads"></div>
+  </div>
+
+  <div id="map"></div>
+
+  <script src="/static/libs/leaflet.js"></script>
+  <script src="/static/libs/geotiff.min.js"></script>
+  <script src="/static/libs/plotty.min.js"></script>
+  <script src="/static/libs/leaflet-geotiff.min.js"></script>
+  <script src="/static/libs/leaflet-geotiff-plotty.min.js"></script>
+
+  <script>
+    const map = L.map('map').setView([41.5, 1.5], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+      attribution:'© OpenStreetMap'
+    }).addTo(map);
+
+    const layerControl = L.control.layers(null, null, { collapsed:false }).addTo(map);
+    const legends = {};
+    const absUrl = (u) => u ? new URL(u, window.location.origin).href : null;
+    const status = document.getElementById('status');
+    const downloads = document.getElementById('downloads');
+
+    function setStatus(msg, color="#333") {
+      status.textContent = msg;
+      status.style.color = color;
+    }
+
+    function addTiff(url, name, opacity=0.6, stats=null, colorScale='viridis') {
+      if (!url) return null;
+      const layer = new L.LeafletGeotiff(absUrl(url), {
+        renderer: new L.LeafletGeotiff.Plotty({ colorScale, opacity })
+      });
+      layer.on('load', () => {
+        try { map.fitBounds(layer.getBounds(), { maxZoom: 10 }); } catch(e){}
+      });
+      layer.addTo(map);
+      layerControl.addOverlay(layer, name);
+      if (stats && Number.isFinite(stats.min) && Number.isFinite(stats.max)) {
+        addLegend(name, colorScale, stats.min, stats.max);
+      }
+      return layer;
+    }
+
+    const COLOR_SCALES = {
+      viridis: [
+        [0.00,'#440154'],[0.20,'#414487'],[0.40,'#2A788E'],
+        [0.60,'#22A884'],[0.80,'#7AD151'],[1.00,'#FDE725']
+      ]
+    };
+
+    function addLegend(name, colorScale, vmin, vmax) {
+      if (legends[name]) { map.removeControl(legends[name]); delete legends[name]; }
+      const ctrl = L.control({ position: 'bottomright' });
+      ctrl.onAdd = function() {
+        const div = L.DomUtil.create('div', 'legend');
+        const h = L.DomUtil.create('h4', '', div);
+        h.textContent = `${name} (${colorScale})`;
+        const canvas = L.DomUtil.create('canvas', '', div);
+        canvas.width = 160; canvas.height = 12;
+        const ctx = canvas.getContext('2d');
+        const stops = COLOR_SCALES[colorScale] || COLOR_SCALES.viridis;
+        const grad = ctx.createLinearGradient(0, 0, canvas.width, 0);
+        stops.forEach(([t, c]) => grad.addColorStop(t, c));
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        const ticks = L.DomUtil.create('div', 'ticks', div);
+        ticks.innerHTML = `<span>${vmin.toFixed(2)}</span><span>${((vmin+vmax)/2).toFixed(2)}</span><span>${vmax.toFixed(2)}</span>`;
+        return div;
+      };
+      ctrl.addTo(map);
+      legends[name] = ctrl;
+    }
+
+    async function addGeoJSON(url, name, style) {
+      if (!url) return null;
+      const resp = await fetch(absUrl(url));
+      if (!resp.ok) return null;
+      const txt = await resp.text();
+      let gj; try { gj = JSON.parse(txt); } catch { return null; }
+      const layer = L.geoJSON(gj, {
+        style: style || { color:'#222', weight:1 },
+        pointToLayer: (f, latlng) =>
+          L.circleMarker(latlng, { radius:4, color:'#111', fillColor:'#0af', fillOpacity:0.7 })
+      }).addTo(map);
+      layerControl.addOverlay(layer, name);
+      return layer;
+    }
+
+    function setDownloads(job, urls) {
+      const mk = (href, label) => href ? `<li><a href="${href}" download>${label}</a></li>` : '';
+      downloads.innerHTML =
+        `<strong>Descargas:</strong>
+         <ul style="margin:4px 0;">
+           ${mk(urls.kriging,  'Kriging.tif')}
+           ${mk(urls.slope,    'Slope.tif')}
+           ${mk(urls.velocity, 'Velocity.tif')}
+           ${mk(urls.contours, 'Contours.geojson')}
+           ${mk(urls.ellipse,  'Ellipse.geojson')}
+           ${mk(urls.selected_points, 'Selected_points.geojson')}
+           ${mk(urls.grid,     'Grid.geojson')}
+         </ul>
+         <a href="/download/${job}">Descargar todo (.zip)</a>`;
+    }
+
+    document.getElementById('runBtn').addEventListener('click', async () => {
+      const file = document.getElementById('csv').files[0];
+      if (!file) { alert('Selecciona un CSV'); return; }
+      setStatus('Procesando...', '#d35400');
+      downloads.innerHTML = '';
+
+      const fd = new FormData();
+      fd.append('csv', file);
+      fd.append('grid_cell_m', document.getElementById('grid').value);
+      fd.append('krige_cell_m', document.getElementById('cell').value);
+      fd.append('contour_interval', document.getElementById('contour').value);
+      fd.append('dayfirst','true');
+
+      const r = await fetch('/run', { method:'POST', body: fd });
+      if (!r.ok) { setStatus('Error en el procesamiento', '#c0392b'); return; }
+      const js = await r.json();
+      setStatus('Cargando capas...', '#2980b9');
+
+      addTiff(js.urls.kriging,  'Kriging', 0.60, js.stats?.kriging, 'viridis');
+      addTiff(js.urls.slope,    'Slope',   0.45, js.stats?.slope,   'viridis');
+      addTiff(js.urls.velocity, 'Velocity',0.45, js.stats?.velocity,'viridis');
+
+      await addGeoJSON(js.urls.grid,            'Grid',      { color:'#999', weight:0.5, opacity:0.7 });
+      await addGeoJSON(js.urls.contours,        'Contours',  { color:'#e67e22', weight:1.2 });
+      await addGeoJSON(js.urls.ellipse,         'Ellipse',   { color:'#c0392b', weight:2, fill:false });
+      const p = await addGeoJSON(js.urls.selected_points, 'Selected pts');
+
+      if (p && p.getBounds) map.fitBounds(p.getBounds(), { maxZoom: 10 });
+
+      setDownloads(js.job, js.urls);
+      setStatus('Todas las capas cargadas con éxito', '#27ae60');
+    });
+  </script>
+</body>
+</html>
