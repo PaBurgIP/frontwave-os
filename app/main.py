@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.frontwave import run_frontwave
+from app.frontwave_os import run_frontwave
 
 BASE = Path(__file__).resolve().parents[1]
 STATIC_DIR = BASE / "static"
