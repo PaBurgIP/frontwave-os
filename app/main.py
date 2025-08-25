@@ -13,14 +13,14 @@ from fastapi.responses import JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.frontwave_os import run_frontwave
+from app.frontwave import run_frontwave
 
 BASE = Path(__file__).resolve().parents[1]
 STATIC_DIR = BASE / "static"
 OUT_BASE = STATIC_DIR / "results"
 OUT_BASE.mkdir(parents=True, exist_ok=True)
 
-app = FastAPI(title="FrontWave OS API")
+app = FastAPI(title="FrontWave API")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -67,6 +67,15 @@ async def run(
     krige_cell_m: float = Form(1200.0),
     contour_interval: float = Form(30.0),
     dayfirst: bool = Form(True),
+    # NUEVO: nombres de campos y CSV opts
+    lon_field: str = Form("lon"),
+    lat_field: str = Form("lat"),
+    date_field: str = Form("date"),
+    id_field: str = Form("id"),
+    weight_field: str = Form("weight"),
+    case_field: str = Form("cases"),
+    sep: str = Form(";"),
+    date_format: str | None = Form(None),
 ):
     job = str(uuid.uuid4())[:8]
     job_dir = OUT_BASE / job
@@ -78,12 +87,14 @@ async def run(
 
     res = run_frontwave(
         str(csv_path), str(job_dir),
-        grid_cell_m=grid_cell_m,
-        krige_cell_m=krige_cell_m,
+        lon_field=lon_field, lat_field=lat_field,
+        date_field=date_field, id_field=id_field,
+        weight_field=weight_field, case_field=case_field,
+        grid_cell_m=grid_cell_m, krige_cell_m=krige_cell_m,
         contour_interval=contour_interval,
-        dayfirst=dayfirst,
-        sep=';'
+        dayfirst=dayfirst, sep=sep, date_format=date_format
     )
+
 
     contours_geojson = _to_geojson(res.get("contours",""), "contours", job_dir / "contours.geojson")
     ellipse_geojson  = _to_geojson(res.get("ellipse",""), "ellipse", job_dir / "ellipse.geojson")
