@@ -67,15 +67,6 @@ async def run(
     krige_cell_m: float = Form(1200.0),
     contour_interval: float = Form(30.0),
     dayfirst: bool = Form(True),
-    # NUEVO: nombres de campos y CSV opts
-    lon_field: str = Form("lon"),
-    lat_field: str = Form("lat"),
-    date_field: str = Form("date"),
-    id_field: str = Form("id"),
-    weight_field: str = Form("weight"),
-    case_field: str = Form("cases"),
-    sep: str = Form(";"),
-    date_format: str | None = Form(None),
 ):
     job = str(uuid.uuid4())[:8]
     job_dir = OUT_BASE / job
@@ -87,14 +78,12 @@ async def run(
 
     res = run_frontwave(
         str(csv_path), str(job_dir),
-        lon_field=lon_field, lat_field=lat_field,
-        date_field=date_field, id_field=id_field,
-        weight_field=weight_field, case_field=case_field,
-        grid_cell_m=grid_cell_m, krige_cell_m=krige_cell_m,
+        grid_cell_m=grid_cell_m,
+        krige_cell_m=krige_cell_m,
         contour_interval=contour_interval,
-        dayfirst=dayfirst, sep=sep, date_format=date_format
+        dayfirst=dayfirst,
+        sep=';'
     )
-
 
     contours_geojson = _to_geojson(res.get("contours",""), "contours", job_dir / "contours.geojson")
     ellipse_geojson  = _to_geojson(res.get("ellipse",""), "ellipse", job_dir / "ellipse.geojson")
